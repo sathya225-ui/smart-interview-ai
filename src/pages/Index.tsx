@@ -6,11 +6,18 @@ import FeedbackDashboard from "@/components/FeedbackDashboard";
 
 type Screen = "hero" | "setup" | "interview" | "feedback";
 
+interface ChatMessage {
+  id: number;
+  role: "ai" | "user";
+  text: string;
+  timestamp: Date;
+}
+
 const Index = () => {
   const [screen, setScreen] = useState<Screen>("hero");
   const [role, setRole] = useState("");
   const [difficulty, setDifficulty] = useState("");
-  const [msgCount, setMsgCount] = useState(0);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
 
   const handleBegin = (r: string, d: string) => {
     setRole(r);
@@ -18,8 +25,8 @@ const Index = () => {
     setScreen("interview");
   };
 
-  const handleFinish = (messages: { id: number; role: string; text: string }[]) => {
-    setMsgCount(messages.length);
+  const handleFinish = (messages: ChatMessage[]) => {
+    setChatMessages(messages);
     setScreen("feedback");
   };
 
@@ -27,7 +34,7 @@ const Index = () => {
     setScreen("hero");
     setRole("");
     setDifficulty("");
-    setMsgCount(0);
+    setChatMessages([]);
   };
 
   return (
@@ -36,7 +43,7 @@ const Index = () => {
       {screen === "setup" && <InterviewSetup onBegin={handleBegin} onBack={() => setScreen("hero")} />}
       {screen === "interview" && <InterviewChat role={role} difficulty={difficulty} onFinish={handleFinish} />}
       {screen === "feedback" && (
-        <FeedbackDashboard role={role} difficulty={difficulty} messageCount={msgCount} onRestart={handleRestart} />
+        <FeedbackDashboard role={role} difficulty={difficulty} messages={chatMessages} onRestart={handleRestart} />
       )}
     </main>
   );
