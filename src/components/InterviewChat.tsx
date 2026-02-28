@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Send, Bot, User, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 
 interface Message {
   id: number;
@@ -10,79 +11,113 @@ interface Message {
   timestamp: Date;
 }
 
-const questionBank: Record<string, string[]> = {
-  frontend: [
-    "Tell me about yourself and your experience with frontend development.",
-    "How do you ensure responsive design across different devices?",
-    "Explain the difference between CSS Grid and Flexbox. When would you use each?",
-    "Describe a challenging bug you fixed in a web application.",
-    "How do you optimize website performance?",
-  ],
-  backend: [
-    "Tell me about yourself and your backend development experience.",
-    "How do you design RESTful APIs? What best practices do you follow?",
-    "Explain the difference between SQL and NoSQL databases.",
-    "How do you handle authentication and authorization?",
-    "Describe your experience with microservices architecture.",
-  ],
-  designer: [
-    "Walk me through your design process from research to delivery.",
-    "How do you handle conflicting feedback from stakeholders?",
-    "What's the difference between UX and UI design?",
-    "Describe a project where your design significantly improved metrics.",
-    "How do you approach designing for accessibility?",
-  ],
-  pm: [
-    "How do you prioritize features in a product roadmap?",
-    "Describe a time you had to make a difficult trade-off decision.",
-    "How do you gather and validate user requirements?",
-    "What metrics do you track to measure product success?",
-    "How do you handle disagreements with engineering teams?",
-  ],
-  data: [
-    "What tools and technologies do you use for data analysis?",
-    "How do you handle missing or inconsistent data?",
-    "Describe a project where your analysis drove a business decision.",
-    "Explain the difference between correlation and causation.",
-    "How do you present complex findings to non-technical stakeholders?",
-  ],
-  support: [
-    "How do you handle an angry or frustrated customer?",
-    "Describe your approach to troubleshooting technical issues.",
-    "How do you prioritize multiple support tickets?",
-    "What tools have you used for customer support management?",
-    "How do you turn a negative customer experience into a positive one?",
-  ],
-};
-
 interface InterviewChatProps {
   role: string;
   difficulty: string;
   onFinish: (messages: Message[]) => void;
 }
 
+const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/interview-chat`;
+
 const InterviewChat = ({ role, difficulty, onFinish }: InterviewChatProps) => {
-  const questions = questionBank[role] || questionBank.frontend;
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: 0,
-      role: "ai",
-      text: `Welcome! I'm your AI interviewer. This is a ${difficulty}-level interview for the ${role.replace(/([A-Z])/g, " $1").trim()} role. Let's begin.\n\n${questions[0]}`,
-      timestamp: new Date(),
-    },
-  ]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
-  const [currentQ, setCurrentQ] = useState(0);
   const [isTyping, setIsTyping] = useState(false);
+  const [isComplete, setIsComplete] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const hasSentInitial = useRef(false);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isTyping]);
 
+  // Send initial message to AI to start the interview
+  useEffect(() => {
+    if (hasSentInitial.current) return;
+    hasSentInitial.current = true;
+    streamAI([{ role: "user" as const, content: `Start the interview. I'm applying for the ${role} position at ${difficulty} level. Please introduce yourself and ask your first question.` }], true);
+  }, []);
+
+  const streamAI = async (
+    chatMessages: { role: string; content: string }[],
+    isInitial = false
+  ) => {
+    setIsTyping(true);
+    let fullText = "";
+
+    try {
+      const resp = await fetch(CHAT_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+        },
+        body: JSON.stringify({ messages: chatMessages, role, difficulty }),
+      });
+
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ error: "Request failed" }));
+        toast.error(err.error || "Something went wrong");
+        setIsTyping(false);
+        return;
+      }
+
+      if (!resp.body) throw new Error("No response body");
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      const updateAssistant = (text: string) => {
+        setMessages((prev) => {
+          const last = prev[prev.length - 1];
+          if (last?.role === "ai") {
+            return prev.map((m, i) => (i === prev.length - 1 ? { ...m, text } : m));
+          }
+          return [...prev, { id: prev.length, role: "ai" as const, text, timestamp: new Date() }];
+        });
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        let newlineIndex: number;
+        while ((newlineIndex = buffer.indexOf("\n")) !== -1) {
+          let line = buffer.slice(0, newlineIndex);
+          buffer = buffer.slice(newlineIndex + 1);
+          if (line.endsWith("\r")) line = line.slice(0, -1);
+          if (!line.startsWith("data: ")) continue;
+          const jsonStr = line.slice(6).trim();
+          if (jsonStr === "[DONE]") break;
+          try {
+            const parsed = JSON.parse(jsonStr);
+            const content = parsed.choices?.[0]?.delta?.content;
+            if (content) {
+              fullText += content;
+              updateAssistant(fullText.replace("[INTERVIEW_COMPLETE]", "").trim());
+            }
+          } catch {
+            buffer = line + "\n" + buffer;
+            break;
+          }
+        }
+      }
+
+      if (fullText.includes("[INTERVIEW_COMPLETE]")) {
+        setIsComplete(true);
+      }
+    } catch (e) {
+      console.error(e);
+      toast.error("Failed to get AI response");
+    } finally {
+      setIsTyping(false);
+    }
+  };
+
   const handleSend = () => {
-    if (!input.trim()) return;
+    if (!input.trim() || isTyping) return;
 
     const userMsg: Message = {
       id: messages.length,
@@ -92,31 +127,15 @@ const InterviewChat = ({ role, difficulty, onFinish }: InterviewChatProps) => {
     };
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
-    setIsTyping(true);
 
-    setTimeout(() => {
-      const nextQ = currentQ + 1;
-      let aiText: string;
+    // Build chat history for the AI
+    const chatHistory = messages.map((m) => ({
+      role: m.role === "ai" ? "assistant" : "user",
+      content: m.text,
+    }));
+    chatHistory.push({ role: "user", content: input.trim() });
 
-      if (nextQ < questions.length) {
-        const feedbacks = [
-          "Good answer! Let me follow up with this:",
-          "Interesting perspective. Here's the next question:",
-          "Thank you for sharing. Moving on:",
-          "Great, I appreciate the detail. Next:",
-        ];
-        aiText = `${feedbacks[nextQ % feedbacks.length]}\n\n${questions[nextQ]}`;
-        setCurrentQ(nextQ);
-      } else {
-        aiText = "Excellent! That concludes our interview. Thank you for your thoughtful responses. Click 'End Interview' to see your feedback.";
-      }
-
-      setMessages((prev) => [
-        ...prev,
-        { id: prev.length, role: "ai", text: aiText, timestamp: new Date() },
-      ]);
-      setIsTyping(false);
-    }, 1200 + Math.random() * 800);
+    streamAI(chatHistory);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -125,8 +144,6 @@ const InterviewChat = ({ role, difficulty, onFinish }: InterviewChatProps) => {
       handleSend();
     }
   };
-
-  const isFinished = currentQ >= questions.length - 1 && messages[messages.length - 1]?.role === "ai" && messages.length > questions.length;
 
   return (
     <section className="min-h-screen flex flex-col">
@@ -143,7 +160,7 @@ const InterviewChat = ({ role, difficulty, onFinish }: InterviewChatProps) => {
         </div>
         <div className="flex items-center gap-2 text-muted-foreground text-sm">
           <Clock className="h-4 w-4" />
-          Q {Math.min(currentQ + 1, questions.length)}/{questions.length}
+          Live AI
         </div>
       </div>
 
@@ -200,20 +217,20 @@ const InterviewChat = ({ role, difficulty, onFinish }: InterviewChatProps) => {
       {/* Input */}
       <div className="border-t border-border/50 px-6 py-4">
         <div className="max-w-3xl mx-auto flex gap-3">
-          {isFinished ? (
+          {isComplete ? (
             <Button onClick={() => onFinish(messages)} className="w-full py-6 text-lg glow">
               End Interview & View Feedback
             </Button>
           ) : (
             <>
               <textarea
-                ref={inputRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder="Type your answer..."
                 rows={1}
-                className="flex-1 bg-secondary border border-border rounded-xl px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground resize-none focus:outline-none focus:ring-2 focus:ring-primary/50"
+                disabled={isTyping}
+                className="flex-1 bg-secondary border border-border rounded-xl px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground resize-none focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:opacity-50"
               />
               <Button
                 onClick={handleSend}
