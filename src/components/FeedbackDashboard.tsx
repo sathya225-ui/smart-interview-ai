@@ -1,33 +1,109 @@
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { BarChart3, MessageSquare, ThumbsUp, AlertCircle, RotateCcw } from "lucide-react";
+import { BarChart3, MessageSquare, ThumbsUp, AlertCircle, RotateCcw, Sparkles, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
+
+const FEEDBACK_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/interview-feedback`;
+
+interface ChatMessage {
+  id: number;
+  role: "ai" | "user";
+  text: string;
+  timestamp: Date;
+}
+
+interface AIFeedback {
+  overallScore: number;
+  communicationScore: number;
+  technicalScore: number;
+  confidenceScore: number;
+  performanceLabel: string;
+  summary: string;
+  strengths: string[];
+  improvements: string[];
+}
 
 interface FeedbackDashboardProps {
   role: string;
   difficulty: string;
-  messageCount: number;
+  messages: ChatMessage[];
   onRestart: () => void;
 }
 
-const FeedbackDashboard = ({ role, difficulty, messageCount, onRestart }: FeedbackDashboardProps) => {
-  const userAnswers = Math.floor(messageCount / 2);
-  const overallScore = Math.min(95, 60 + userAnswers * 5 + Math.floor(Math.random() * 10));
-  const communicationScore = Math.min(100, 55 + Math.floor(Math.random() * 30));
-  const technicalScore = Math.min(100, 50 + Math.floor(Math.random() * 35));
-  const confidenceScore = Math.min(100, 60 + Math.floor(Math.random() * 25));
+const FeedbackDashboard = ({ role, difficulty, messages, onRestart }: FeedbackDashboardProps) => {
+  const [feedback, setFeedback] = useState<AIFeedback | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const userAnswers = messages.filter((m) => m.role === "user").length;
+
+  useEffect(() => {
+    const fetchFeedback = async () => {
+      try {
+        const resp = await fetch(FEEDBACK_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+          },
+          body: JSON.stringify({ messages, role, difficulty }),
+        });
+
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({ error: "Request failed" }));
+          toast.error(err.error || "Failed to generate feedback");
+          setLoading(false);
+          return;
+        }
+
+        const data = await resp.json();
+        setFeedback(data);
+      } catch (e) {
+        console.error(e);
+        toast.error("Failed to generate feedback");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchFeedback();
+  }, []);
+
+  if (loading) {
+    return (
+      <section className="min-h-screen flex items-center justify-center px-6">
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="text-center"
+        >
+          <div className="inline-flex items-center justify-center h-20 w-20 rounded-full bg-primary/20 glow-strong mb-6">
+            <Loader2 className="h-8 w-8 text-primary animate-spin" />
+          </div>
+          <h2 className="text-2xl font-bold text-foreground mb-2">Analyzing Your Interview</h2>
+          <p className="text-muted-foreground">AI is reviewing your responses...</p>
+        </motion.div>
+      </section>
+    );
+  }
+
+  // Fallback if AI fails
+  const scores = feedback ?? {
+    overallScore: 70,
+    communicationScore: 70,
+    technicalScore: 70,
+    confidenceScore: 70,
+    performanceLabel: "Good",
+    summary: "Interview completed. AI analysis was unavailable.",
+    strengths: ["Completed the full interview"],
+    improvements: ["Try again for detailed AI feedback"],
+  };
 
   const metrics = [
-    { label: "Overall", score: overallScore, color: "bg-primary" },
-    { label: "Communication", score: communicationScore, color: "bg-success" },
-    { label: "Technical", score: technicalScore, color: "bg-accent" },
-    { label: "Confidence", score: confidenceScore, color: "bg-warning" },
-  ];
-
-  const tips = [
-    "Use the STAR method (Situation, Task, Action, Result) for behavioral questions.",
-    "Quantify your achievements with specific numbers and metrics.",
-    "Ask clarifying questions before diving into answers.",
-    "Show enthusiasm and genuine interest in the role.",
+    { label: "Overall", score: scores.overallScore, color: "bg-primary" },
+    { label: "Communication", score: scores.communicationScore, color: "bg-success" },
+    { label: "Technical", score: scores.technicalScore, color: "bg-accent" },
+    { label: "Confidence", score: scores.confidenceScore, color: "bg-warning" },
   ];
 
   return (
@@ -44,11 +120,27 @@ const FeedbackDashboard = ({ role, difficulty, messageCount, onRestart }: Feedba
             transition={{ type: "spring", delay: 0.2 }}
             className="inline-flex items-center justify-center h-20 w-20 rounded-full bg-primary/20 glow-strong mb-4"
           >
-            <span className="text-3xl font-bold text-primary">{overallScore}</span>
+            <span className="text-3xl font-bold text-primary">{scores.overallScore}</span>
           </motion.div>
           <h2 className="text-3xl font-bold text-foreground mb-2">Interview Complete!</h2>
           <p className="text-muted-foreground capitalize">{role} · {difficulty} Level</p>
         </div>
+
+        {/* AI Summary */}
+        {feedback && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+            className="glass rounded-xl p-6 mb-6"
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <Sparkles className="h-5 w-5 text-primary" />
+              <h3 className="font-semibold text-foreground">AI Assessment</h3>
+            </div>
+            <p className="text-sm text-secondary-foreground leading-relaxed">{feedback.summary}</p>
+          </motion.div>
+        )}
 
         {/* Score Bars */}
         <div className="glass rounded-xl p-6 mb-6 space-y-5">
@@ -83,32 +175,58 @@ const FeedbackDashboard = ({ role, difficulty, messageCount, onRestart }: Feedba
           </div>
           <div className="glass rounded-xl p-5 text-center">
             <ThumbsUp className="h-5 w-5 text-success mx-auto mb-2" />
-            <p className="text-2xl font-bold text-foreground">{overallScore >= 70 ? "Strong" : "Good"}</p>
+            <p className="text-2xl font-bold text-foreground">{scores.performanceLabel}</p>
             <p className="text-xs text-muted-foreground">Performance</p>
           </div>
         </div>
 
-        {/* Tips */}
-        <div className="glass rounded-xl p-6 mb-8">
-          <div className="flex items-center gap-2 mb-4">
-            <AlertCircle className="h-5 w-5 text-warning" />
-            <h3 className="font-semibold text-foreground">Tips to Improve</h3>
+        {/* Strengths */}
+        {feedback?.strengths && feedback.strengths.length > 0 && (
+          <div className="glass rounded-xl p-6 mb-6">
+            <div className="flex items-center gap-2 mb-4">
+              <ThumbsUp className="h-5 w-5 text-success" />
+              <h3 className="font-semibold text-foreground">Your Strengths</h3>
+            </div>
+            <ul className="space-y-3">
+              {feedback.strengths.map((s, i) => (
+                <motion.li
+                  key={i}
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.6 + i * 0.1 }}
+                  className="flex gap-3 text-sm text-secondary-foreground"
+                >
+                  <span className="text-success font-mono text-xs mt-0.5">✓</span>
+                  {s}
+                </motion.li>
+              ))}
+            </ul>
           </div>
-          <ul className="space-y-3">
-            {tips.map((tip, i) => (
-              <motion.li
-                key={i}
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.8 + i * 0.1 }}
-                className="flex gap-3 text-sm text-secondary-foreground"
-              >
-                <span className="text-primary font-mono text-xs mt-0.5">0{i + 1}</span>
-                {tip}
-              </motion.li>
-            ))}
-          </ul>
-        </div>
+        )}
+
+        {/* Improvements */}
+        {feedback?.improvements && feedback.improvements.length > 0 && (
+          <div className="glass rounded-xl p-6 mb-8">
+            <div className="flex items-center gap-2 mb-4">
+              <AlertCircle className="h-5 w-5 text-warning" />
+              <h3 className="font-semibold text-foreground">Areas to Improve</h3>
+            </div>
+            <ul className="space-y-3">
+              {feedback.improvements.map((tip, i) => (
+                <motion.li
+                  key={i}
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.8 + i * 0.1 }}
+                  className="flex gap-3 text-sm text-secondary-foreground"
+                >
+                  <span className="text-primary font-mono text-xs mt-0.5">0{i + 1}</span>
+                  {tip}
+                </motion.li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         <Button onClick={onRestart} size="lg" className="w-full py-6 text-lg glow">
           <RotateCcw className="mr-2 h-5 w-5" />
