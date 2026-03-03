@@ -14,7 +14,116 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      interview_messages: {
+        Row: {
+          created_at: string
+          id: string
+          role: string
+          session_id: string
+          text: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role: string
+          session_id: string
+          text: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: string
+          session_id?: string
+          text?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "interview_messages_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "interview_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      interview_sessions: {
+        Row: {
+          communication_score: number | null
+          confidence_score: number | null
+          created_at: string
+          difficulty: string
+          id: string
+          improvements: string[] | null
+          overall_score: number | null
+          performance_label: string | null
+          role: string
+          strengths: string[] | null
+          summary: string | null
+          technical_score: number | null
+          user_id: string
+        }
+        Insert: {
+          communication_score?: number | null
+          confidence_score?: number | null
+          created_at?: string
+          difficulty: string
+          id?: string
+          improvements?: string[] | null
+          overall_score?: number | null
+          performance_label?: string | null
+          role: string
+          strengths?: string[] | null
+          summary?: string | null
+          technical_score?: number | null
+          user_id: string
+        }
+        Update: {
+          communication_score?: number | null
+          confidence_score?: number | null
+          created_at?: string
+          difficulty?: string
+          id?: string
+          improvements?: string[] | null
+          overall_score?: number | null
+          performance_label?: string | null
+          role?: string
+          strengths?: string[] | null
+          summary?: string | null
+          technical_score?: number | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          created_at: string
+          display_name: string | null
+          id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
