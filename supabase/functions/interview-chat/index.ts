@@ -12,18 +12,22 @@ serve(async (req) => {
   }
 
   try {
-    const { messages, role, difficulty } = await req.json();
+    const { messages, role, difficulty, jobDescription } = await req.json();
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
 
-    const systemPrompt = `You are a professional HR interviewer conducting a ${difficulty}-level job interview for a ${role} position.
+    const roleContext = role === "others" && jobDescription
+      ? `Based on the following job description, generate relevant interview questions:\n\n${jobDescription}`
+      : `for a ${role} position`;
+
+    const systemPrompt = `You are a professional HR interviewer conducting a ${difficulty}-level job interview ${roleContext}.
 
 Your behavior:
 - Ask ONE question at a time
 - Start with an introduction and your first question
 - After the candidate answers, give brief feedback (1-2 sentences) then ask the next question
 - Ask a total of 5 questions covering: behavioral, technical, situational, and culture-fit aspects
-- Keep questions relevant to the ${role} role and ${difficulty} experience level
+- Keep questions relevant to the role and ${difficulty} experience level
 - Be professional, encouraging, and realistic
 - After the 5th answer, provide a brief closing statement and say the interview is complete
 - When the interview is complete, end your message with [INTERVIEW_COMPLETE]

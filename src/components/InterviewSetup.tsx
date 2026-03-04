@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowRight, Briefcase, Code, Palette, LineChart, HeadphonesIcon, GraduationCap } from "lucide-react";
+import { ArrowRight, Briefcase, Code, Palette, LineChart, Users, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const roles = [
@@ -9,7 +9,8 @@ const roles = [
   { id: "designer", label: "UI/UX Designer", icon: Palette },
   { id: "pm", label: "Product Manager", icon: Briefcase },
   { id: "data", label: "Data Analyst", icon: LineChart },
-  { id: "support", label: "Customer Support", icon: HeadphonesIcon },
+  { id: "hr", label: "HR", icon: Users },
+  { id: "others", label: "Others (Job Description)", icon: FileText },
 ];
 
 const difficulties = [
@@ -19,13 +20,17 @@ const difficulties = [
 ];
 
 interface InterviewSetupProps {
-  onBegin: (role: string, difficulty: string) => void;
+  onBegin: (role: string, difficulty: string, jobDescription?: string) => void;
   onBack: () => void;
 }
 
 const InterviewSetup = ({ onBegin, onBack }: InterviewSetupProps) => {
   const [selectedRole, setSelectedRole] = useState("");
   const [selectedDifficulty, setSelectedDifficulty] = useState("");
+  const [jobDescription, setJobDescription] = useState("");
+
+  const isOthers = selectedRole === "others";
+  const canBegin = selectedRole && selectedDifficulty && (!isOthers || jobDescription.trim().length > 20);
 
   return (
     <section className="min-h-screen flex items-center justify-center px-6">
@@ -62,6 +67,20 @@ const InterviewSetup = ({ onBegin, onBack }: InterviewSetupProps) => {
           </div>
         </div>
 
+        {isOthers && (
+          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} className="mb-8">
+            <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-4">Paste Job Description</h3>
+            <textarea
+              value={jobDescription}
+              onChange={(e) => setJobDescription(e.target.value)}
+              placeholder="Paste the full job description here... (minimum 20 characters)"
+              rows={6}
+              className="w-full bg-secondary border border-border rounded-xl px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground resize-none focus:outline-none focus:ring-2 focus:ring-primary/50"
+            />
+            <p className="text-xs text-muted-foreground mt-1">{jobDescription.length} characters</p>
+          </motion.div>
+        )}
+
         <div className="mb-10">
           <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-4">Difficulty</h3>
           <div className="grid grid-cols-3 gap-3">
@@ -84,8 +103,8 @@ const InterviewSetup = ({ onBegin, onBack }: InterviewSetupProps) => {
 
         <Button
           size="lg"
-          disabled={!selectedRole || !selectedDifficulty}
-          onClick={() => onBegin(selectedRole, selectedDifficulty)}
+          disabled={!canBegin}
+          onClick={() => onBegin(selectedRole, selectedDifficulty, isOthers ? jobDescription : undefined)}
           className="w-full py-6 text-lg glow hover:glow-strong transition-shadow disabled:opacity-40 disabled:shadow-none"
         >
           Begin Interview
