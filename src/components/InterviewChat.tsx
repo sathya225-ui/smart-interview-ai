@@ -24,12 +24,13 @@ interface Message {
 interface InterviewChatProps {
   role: string;
   difficulty: string;
+  jobDescription?: string;
   onFinish: (messages: Message[]) => void;
 }
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/interview-chat`;
 
-const InterviewChat = ({ role, difficulty, onFinish }: InterviewChatProps) => {
+const InterviewChat = ({ role, difficulty, jobDescription, onFinish }: InterviewChatProps) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
@@ -41,7 +42,7 @@ const InterviewChat = ({ role, difficulty, onFinish }: InterviewChatProps) => {
   const recognitionRef = useRef<any>(null);
   const lastSpokenRef = useRef("");
 
-  // TTS: speak AI messages
+  // TTS
   const speak = useCallback((text: string) => {
     if (!ttsEnabled || !window.speechSynthesis) return;
     window.speechSynthesis.cancel();
@@ -52,7 +53,6 @@ const InterviewChat = ({ role, difficulty, onFinish }: InterviewChatProps) => {
     window.speechSynthesis.speak(utterance);
   }, [ttsEnabled]);
 
-  // Speak completed AI messages
   useEffect(() => {
     if (isTyping) return;
     const lastMsg = messages[messages.length - 1];
@@ -62,7 +62,6 @@ const InterviewChat = ({ role, difficulty, onFinish }: InterviewChatProps) => {
     }
   }, [messages, isTyping, speak]);
 
-  // Cleanup TTS on unmount
   useEffect(() => () => window.speechSynthesis?.cancel(), []);
 
   const stopListening = useCallback(() => {
@@ -105,7 +104,10 @@ const InterviewChat = ({ role, difficulty, onFinish }: InterviewChatProps) => {
   useEffect(() => {
     if (hasSentInitial.current) return;
     hasSentInitial.current = true;
-    streamAI([{ role: "user", content: `Start the interview. I'm applying for the ${role} position at ${difficulty} level. Please introduce yourself and ask your first question.` }], true);
+    const initialContent = role === "others" && jobDescription
+      ? `Start the interview based on this job description at ${difficulty} level. Here is the job description:\n\n${jobDescription}\n\nPlease introduce yourself and ask your first question.`
+      : `Start the interview. I'm applying for the ${role} position at ${difficulty} level. Please introduce yourself and ask your first question.`;
+    streamAI([{ role: "user", content: initialContent }], true);
   }, []);
 
   const streamAI = async (chatMessages: { role: string; content: string }[], isInitial = false) => {
@@ -115,7 +117,7 @@ const InterviewChat = ({ role, difficulty, onFinish }: InterviewChatProps) => {
       const resp = await fetch(CHAT_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}` },
-        body: JSON.stringify({ messages: chatMessages, role, difficulty }),
+        body: JSON.stringify({ messages: chatMessages, role, difficulty, jobDescription }),
       });
       if (!resp.ok) { const err = await resp.json().catch(() => ({ error: "Request failed" })); toast.error(err.error || "Something went wrong"); setIsTyping(false); return; }
       if (!resp.body) throw new Error("No response body");
@@ -167,16 +169,16 @@ const InterviewChat = ({ role, difficulty, onFinish }: InterviewChatProps) => {
   };
 
   return (
-    <section className="min-h-screen flex flex-col">
+    <section className="h-screen flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="glass border-b border-border/50 px-6 py-4 flex items-center justify-between">
+      <div className="glass border-b border-border/50 px-6 py-4 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
           <div className="h-10 w-10 rounded-full bg-primary/20 flex items-center justify-center">
             <Bot className="h-5 w-5 text-primary" />
           </div>
           <div>
             <h2 className="font-semibold text-foreground text-sm">AI Interviewer</h2>
-            <p className="text-xs text-muted-foreground capitalize">{role} · {difficulty}</p>
+            <p className="text-xs text-muted-foreground capitalize">{role === "others" ? "Custom Role" : role} · {difficulty}</p>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -196,18 +198,18 @@ const InterviewChat = ({ role, difficulty, onFinish }: InterviewChatProps) => {
       </div>
 
       {/* Main content with camera */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden min-h-0">
         {/* Camera sidebar */}
-        <div className="hidden md:flex flex-col w-72 p-4 border-r border-border/50 gap-4">
+        <div className="hidden md:flex flex-col w-72 p-4 border-r border-border/50 gap-4 shrink-0">
           <WebcamView />
           <div className="glass rounded-xl p-4 text-center">
             <p className="text-xs text-muted-foreground mb-1">Interview Mode</p>
-            <p className="text-sm font-semibold text-foreground capitalize">{role}</p>
+            <p className="text-sm font-semibold text-foreground capitalize">{role === "others" ? "Custom Role" : role}</p>
             <p className="text-xs text-primary capitalize">{difficulty} level</p>
           </div>
         </div>
 
-        {/* Messages */}
+        {/* Messages - scrollable */}
         <div className="flex-1 overflow-y-auto px-6 py-6 space-y-4 max-w-3xl mx-auto w-full">
           <AnimatePresence>
             {messages.map((msg) => (
@@ -247,8 +249,8 @@ const InterviewChat = ({ role, difficulty, onFinish }: InterviewChatProps) => {
         </div>
       </div>
 
-      {/* Input */}
-      <div className="border-t border-border/50 px-6 py-4">
+      {/* Input - fixed at bottom */}
+      <div className="border-t border-border/50 px-6 py-4 shrink-0">
         <div className="max-w-3xl mx-auto flex gap-3">
           {isComplete ? (
             <Button onClick={() => onFinish(messages)} className="w-full py-6 text-lg glow">

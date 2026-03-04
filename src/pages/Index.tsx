@@ -31,20 +31,21 @@ const Index = () => {
   const [screen, setScreen] = useState<Screen>("hero");
   const [role, setRole] = useState("");
   const [difficulty, setDifficulty] = useState("");
+  const [jobDescription, setJobDescription] = useState<string | undefined>();
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const { user, loading } = useAuth();
   const navigate = useNavigate();
 
-  // Redirect to auth if not logged in
   useEffect(() => {
     if (!loading && !user) {
       navigate("/auth");
     }
   }, [user, loading, navigate]);
 
-  const handleBegin = (r: string, d: string) => {
+  const handleBegin = (r: string, d: string, jd?: string) => {
     setRole(r);
     setDifficulty(d);
+    setJobDescription(jd);
     setScreen("interview");
   };
 
@@ -60,7 +61,7 @@ const Index = () => {
         .from("interview_sessions")
         .insert({
           user_id: user.id,
-          role,
+          role: role === "others" ? "custom" : role,
           difficulty,
           overall_score: feedback.overallScore,
           communication_score: feedback.communicationScore,
@@ -93,6 +94,7 @@ const Index = () => {
     setScreen("hero");
     setRole("");
     setDifficulty("");
+    setJobDescription(undefined);
     setChatMessages([]);
   };
 
@@ -103,7 +105,7 @@ const Index = () => {
     <main className="min-h-screen bg-background">
       {screen === "hero" && <HeroSection onStart={() => setScreen("setup")} />}
       {screen === "setup" && <InterviewSetup onBegin={handleBegin} onBack={() => setScreen("hero")} />}
-      {screen === "interview" && <InterviewChat role={role} difficulty={difficulty} onFinish={handleFinish} />}
+      {screen === "interview" && <InterviewChat role={role} difficulty={difficulty} jobDescription={jobDescription} onFinish={handleFinish} />}
       {screen === "feedback" && (
         <FeedbackDashboard
           role={role}
