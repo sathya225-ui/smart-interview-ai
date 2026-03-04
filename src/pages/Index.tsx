@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import HeroSection from "@/components/HeroSection";
 import InterviewSetup from "@/components/InterviewSetup";
 import InterviewChat from "@/components/InterviewChat";
@@ -31,7 +32,15 @@ const Index = () => {
   const [role, setRole] = useState("");
   const [difficulty, setDifficulty] = useState("");
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
+  const navigate = useNavigate();
+
+  // Redirect to auth if not logged in
+  useEffect(() => {
+    if (!loading && !user) {
+      navigate("/auth");
+    }
+  }, [user, loading, navigate]);
 
   const handleBegin = (r: string, d: string) => {
     setRole(r);
@@ -86,6 +95,9 @@ const Index = () => {
     setDifficulty("");
     setChatMessages([]);
   };
+
+  if (loading) return null;
+  if (!user) return null;
 
   return (
     <main className="min-h-screen bg-background">

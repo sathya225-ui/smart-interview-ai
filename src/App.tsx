@@ -7,6 +7,7 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import History from "./pages/History";
+import SessionDetail from "./pages/SessionDetail";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -22,6 +23,7 @@ const App = () => (
             <Route path="/" element={<Index />} />
             <Route path="/auth" element={<Auth />} />
             <Route path="/history" element={<History />} />
+            <Route path="/session/:id" element={<SessionDetail />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
