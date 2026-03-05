@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 
 const Auth = () => {
-  const [isLogin, setIsLogin] = useState(true);
+  const [mode, setMode] = useState<"login" | "signup" | "forgot">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -27,13 +27,13 @@ const Auth = () => {
     setLoading(true);
 
     try {
-      if (isLogin) {
+      if (mode === "login") {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
         toast.success("Welcome back!");
         navigate("/");
-      } else {
-        const { error } = await supabase.auth.signUp({
+      } else if (mode === "signup") {
+        const { data, error } = await supabase.auth.signUp({
           email,
           password,
           options: {
@@ -41,8 +41,24 @@ const Auth = () => {
             emailRedirectTo: window.location.origin,
           },
         });
+        if (error) {
+          if (error.message.toLowerCase().includes("already registered") || error.message.toLowerCase().includes("already been registered")) {
+            toast.error("This email is already registered. Please sign in instead.");
+          } else {
+            throw error;
+          }
+        } else if (data.user && data.user.identities && data.user.identities.length === 0) {
+          toast.error("This email is already registered. Please sign in instead.");
+        } else {
+          toast.success("Account created successfully! Welcome!");
+          navigate("/");
+        }
+      } else if (mode === "forgot") {
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: `${window.location.origin}/reset-password`,
+        });
         if (error) throw error;
-        toast.success("Check your email to confirm your account!");
+        toast.success("Password reset link sent! Check your email.");
       }
     } catch (error: any) {
       toast.error(error.message);
@@ -50,6 +66,13 @@ const Auth = () => {
       setLoading(false);
     }
   };
+
+  const title = mode === "login" ? "Welcome Back" : mode === "signup" ? "Create Account" : "Reset Password";
+  const subtitle = mode === "login"
+    ? "Sign in to track your interview progress"
+    : mode === "signup"
+    ? "Start your interview prep journey"
+    : "Enter your email to receive a reset link";
 
   return (
     <section className="min-h-screen flex items-center justify-center px-6">
@@ -59,16 +82,12 @@ const Auth = () => {
         className="w-full max-w-md"
       >
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-foreground mb-2">
-            {isLogin ? "Welcome Back" : "Create Account"}
-          </h1>
-          <p className="text-muted-foreground">
-            {isLogin ? "Sign in to track your interview progress" : "Start your interview prep journey"}
-          </p>
+          <h1 className="text-3xl font-bold text-foreground mb-2">{title}</h1>
+          <p className="text-muted-foreground">{subtitle}</p>
         </div>
 
         <form onSubmit={handleSubmit} className="glass rounded-xl p-6 space-y-4">
-          {!isLogin && (
+          {mode === "signup" && (
             <div className="relative">
               <User className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
               <Input
@@ -91,32 +110,46 @@ const Auth = () => {
               required
             />
           </div>
-          <div className="relative">
-            <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-            <Input
-              type={showPassword ? "text" : "password"}
-              placeholder="Password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="pl-10 pr-10 bg-secondary border-border"
-              minLength={6}
-              required
-            />
-            <button
-              type="button"
-              onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-3 top-3 text-muted-foreground hover:text-foreground transition-colors"
-            >
-              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-            </button>
-          </div>
+          {mode !== "forgot" && (
+            <div className="relative">
+              <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+              <Input
+                type={showPassword ? "text" : "password"}
+                placeholder="Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="pl-10 pr-10 bg-secondary border-border"
+                minLength={6}
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-3 text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+          )}
+
+          {mode === "login" && (
+            <div className="text-right">
+              <button
+                type="button"
+                onClick={() => setMode("forgot")}
+                className="text-sm text-primary hover:underline"
+              >
+                Forgot password?
+              </button>
+            </div>
+          )}
 
           <Button type="submit" disabled={loading} className="w-full py-5 glow">
             {loading ? (
               <Loader2 className="h-5 w-5 animate-spin" />
             ) : (
               <>
-                {isLogin ? "Sign In" : "Create Account"}
+                {mode === "login" ? "Sign In" : mode === "signup" ? "Create Account" : "Send Reset Link"}
                 <ArrowRight className="ml-2 h-4 w-4" />
               </>
             )}
@@ -124,13 +157,17 @@ const Auth = () => {
         </form>
 
         <p className="text-center text-sm text-muted-foreground mt-6">
-          {isLogin ? "Don't have an account?" : "Already have an account?"}{" "}
-          <button
-            onClick={() => setIsLogin(!isLogin)}
-            className="text-primary hover:underline font-medium"
-          >
-            {isLogin ? "Sign up" : "Sign in"}
-          </button>
+          {mode === "login" ? (
+            <>
+              Don't have an account?{" "}
+              <button onClick={() => setMode("signup")} className="text-primary hover:underline font-medium">Sign up</button>
+            </>
+          ) : (
+            <>
+              Already have an account?{" "}
+              <button onClick={() => setMode("login")} className="text-primary hover:underline font-medium">Sign in</button>
+            </>
+          )}
         </p>
       </motion.div>
     </section>
