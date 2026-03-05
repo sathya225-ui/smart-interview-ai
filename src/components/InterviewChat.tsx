@@ -4,6 +4,7 @@ import { Send, Bot, User, Clock, Mic, MicOff, Volume2, VolumeX } from "lucide-re
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import WebcamView from "@/components/WebcamView";
+import aiInterviewerImg from "@/assets/ai-interviewer.jpg";
 
 // Web Speech API types
 interface SpeechRecognitionEvent {
@@ -29,6 +30,7 @@ interface InterviewChatProps {
 }
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/interview-chat`;
+const SILENCE_TIMEOUT_MS = 5000;
 
 const InterviewChat = ({ role, difficulty, jobDescription, onFinish }: InterviewChatProps) => {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -37,10 +39,34 @@ const InterviewChat = ({ role, difficulty, jobDescription, onFinish }: Interview
   const [isComplete, setIsComplete] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [ttsEnabled, setTtsEnabled] = useState(true);
+  const [aiSpeaking, setAiSpeaking] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const hasSentInitial = useRef(false);
   const recognitionRef = useRef<any>(null);
   const lastSpokenRef = useRef("");
+  const silenceTimerRef = useRef<number | null>(null);
+  const autoMicTriggered = useRef(false);
+
+  // Clear silence timer
+  const clearSilenceTimer = useCallback(() => {
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+  }, []);
+
+  // Start silence timer - stops mic after 5s of no speech
+  const startSilenceTimer = useCallback(() => {
+    clearSilenceTimer();
+    silenceTimerRef.current = window.setTimeout(() => {
+      if (recognitionRef.current) {
+        toast.info("Mic stopped — no speech detected for 5 seconds");
+        recognitionRef.current.stop();
+        recognitionRef.current = null;
+        setIsListening(false);
+      }
+    }, SILENCE_TIMEOUT_MS);
+  }, [clearSilenceTimer]);
 
   // TTS
   const speak = useCallback((text: string) => {
@@ -50,6 +76,9 @@ const InterviewChat = ({ role, difficulty, jobDescription, onFinish }: Interview
     utterance.rate = 0.95;
     utterance.pitch = 1;
     utterance.lang = "en-US";
+    utterance.onstart = () => setAiSpeaking(true);
+    utterance.onend = () => setAiSpeaking(false);
+    utterance.onerror = () => setAiSpeaking(false);
     window.speechSynthesis.speak(utterance);
   }, [ttsEnabled]);
 
@@ -62,12 +91,13 @@ const InterviewChat = ({ role, difficulty, jobDescription, onFinish }: Interview
     }
   }, [messages, isTyping, speak]);
 
-  useEffect(() => () => window.speechSynthesis?.cancel(), []);
+  useEffect(() => () => { window.speechSynthesis?.cancel(); clearSilenceTimer(); }, [clearSilenceTimer]);
 
   const stopListening = useCallback(() => {
+    clearSilenceTimer();
     if (recognitionRef.current) { recognitionRef.current.stop(); recognitionRef.current = null; }
     setIsListening(false);
-  }, []);
+  }, [clearSilenceTimer]);
 
   const startListening = useCallback(() => {
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -78,6 +108,8 @@ const InterviewChat = ({ role, difficulty, jobDescription, onFinish }: Interview
     recognition.lang = "en-US";
     let finalTranscript = "";
     recognition.onresult = (event: SpeechRecognitionEvent) => {
+      // Reset silence timer on any speech activity
+      startSilenceTimer();
       let interim = "";
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const t = event.results[i][0].transcript;
@@ -85,17 +117,35 @@ const InterviewChat = ({ role, difficulty, jobDescription, onFinish }: Interview
       }
       setInput(finalTranscript + interim);
     };
-    recognition.onerror = (e: any) => { if (e.error !== "aborted") toast.error("Mic error: " + e.error); setIsListening(false); };
-    recognition.onend = () => setIsListening(false);
+    recognition.onerror = (e: any) => { if (e.error !== "aborted") toast.error("Mic error: " + e.error); setIsListening(false); clearSilenceTimer(); };
+    recognition.onend = () => { setIsListening(false); clearSilenceTimer(); };
     recognitionRef.current = recognition;
     recognition.start();
     setIsListening(true);
+    // Start silence timer immediately
+    startSilenceTimer();
     toast.info("Listening... Speak your answer");
-  }, []);
+  }, [startSilenceTimer, clearSilenceTimer]);
 
   const toggleListening = useCallback(() => {
     isListening ? stopListening() : startListening();
   }, [isListening, startListening, stopListening]);
+
+  // Auto-start mic when AI finishes speaking/typing and it's user's turn
+  useEffect(() => {
+    if (!isTyping && !isComplete && messages.length > 0) {
+      const lastMsg = messages[messages.length - 1];
+      if (lastMsg?.role === "ai" && !isListening) {
+        // Delay to let TTS start first, then auto-enable mic after TTS ends
+        const delay = setTimeout(() => {
+          if (!recognitionRef.current) {
+            startListening();
+          }
+        }, 1500);
+        return () => clearTimeout(delay);
+      }
+    }
+  }, [isTyping, messages, isComplete, isListening, startListening]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -173,18 +223,21 @@ const InterviewChat = ({ role, difficulty, jobDescription, onFinish }: Interview
       {/* Header */}
       <div className="glass border-b border-border/50 px-6 py-4 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-full bg-primary/20 flex items-center justify-center">
-            <Bot className="h-5 w-5 text-primary" />
+          <div className={`h-10 w-10 rounded-full overflow-hidden border-2 transition-colors ${aiSpeaking ? "border-primary animate-pulse-glow" : "border-border/50"}`}>
+            <img src={aiInterviewerImg} alt="AI Interviewer" className="h-full w-full object-cover" />
           </div>
           <div>
             <h2 className="font-semibold text-foreground text-sm">AI Interviewer</h2>
-            <p className="text-xs text-muted-foreground capitalize">{role === "others" ? "Custom Role" : role} · {difficulty}</p>
+            <p className="text-xs text-muted-foreground capitalize">
+              {role === "others" ? "Custom Role" : role} · {difficulty}
+              {aiSpeaking && <span className="ml-2 text-primary">● Speaking</span>}
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-3">
           <Button
             variant="ghost" size="icon"
-            onClick={() => { setTtsEnabled(!ttsEnabled); if (ttsEnabled) window.speechSynthesis?.cancel(); }}
+            onClick={() => { setTtsEnabled(!ttsEnabled); if (ttsEnabled) { window.speechSynthesis?.cancel(); setAiSpeaking(false); } }}
             className="text-muted-foreground hover:text-foreground"
             title={ttsEnabled ? "Mute AI voice" : "Enable AI voice"}
           >
@@ -201,6 +254,19 @@ const InterviewChat = ({ role, difficulty, jobDescription, onFinish }: Interview
       <div className="flex-1 flex overflow-hidden min-h-0">
         {/* Camera sidebar */}
         <div className="hidden md:flex flex-col w-72 p-4 border-r border-border/50 gap-4 shrink-0">
+          {/* AI Interviewer face */}
+          <div className="relative rounded-xl overflow-hidden border border-border/50 bg-card aspect-video">
+            <img src={aiInterviewerImg} alt="AI Interviewer" className="w-full h-full object-cover" />
+            <div className={`absolute inset-0 transition-opacity ${aiSpeaking ? "bg-primary/10 animate-pulse" : "bg-transparent"}`} />
+            <div className="absolute bottom-2 left-2 bg-background/70 backdrop-blur-sm px-2 py-1 rounded-md">
+              <p className="text-xs font-medium text-foreground flex items-center gap-1.5">
+                <Bot className="h-3 w-3 text-primary" />
+                AI Interviewer
+                {aiSpeaking && <span className="h-2 w-2 rounded-full bg-primary animate-pulse" />}
+              </p>
+            </div>
+          </div>
+          {/* User webcam */}
           <WebcamView />
           <div className="glass rounded-xl p-4 text-center">
             <p className="text-xs text-muted-foreground mb-1">Interview Mode</p>
@@ -215,8 +281,8 @@ const InterviewChat = ({ role, difficulty, jobDescription, onFinish }: Interview
             {messages.map((msg) => (
               <motion.div key={msg.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className={`flex gap-3 ${msg.role === "user" ? "justify-end" : ""}`}>
                 {msg.role === "ai" && (
-                  <div className="h-8 w-8 rounded-full bg-primary/20 flex-shrink-0 flex items-center justify-center mt-1">
-                    <Bot className="h-4 w-4 text-primary" />
+                  <div className="h-8 w-8 rounded-full overflow-hidden flex-shrink-0 mt-1 border border-border/50">
+                    <img src={aiInterviewerImg} alt="AI" className="h-full w-full object-cover" />
                   </div>
                 )}
                 <div className={`max-w-[80%] rounded-2xl px-5 py-3 text-sm leading-relaxed whitespace-pre-wrap ${msg.role === "user" ? "bg-primary text-primary-foreground rounded-br-md" : "glass rounded-bl-md text-foreground"}`}>
@@ -233,8 +299,8 @@ const InterviewChat = ({ role, difficulty, jobDescription, onFinish }: Interview
 
           {isTyping && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex gap-3">
-              <div className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center">
-                <Bot className="h-4 w-4 text-primary" />
+              <div className="h-8 w-8 rounded-full overflow-hidden flex-shrink-0 border border-border/50">
+                <img src={aiInterviewerImg} alt="AI" className="h-full w-full object-cover" />
               </div>
               <div className="glass rounded-2xl rounded-bl-md px-5 py-3">
                 <div className="flex gap-1">
@@ -260,7 +326,7 @@ const InterviewChat = ({ role, difficulty, jobDescription, onFinish }: Interview
             <>
               <textarea
                 value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown}
-                placeholder="Type or tap 🎤 to speak..."
+                placeholder={isListening ? "🎤 Listening... speak now" : "Type or tap 🎤 to speak..."}
                 rows={1} disabled={isTyping}
                 className="flex-1 bg-secondary border border-border rounded-xl px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground resize-none focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:opacity-50"
               />
